@@ -1,36 +1,42 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { withShopScope } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
 import { assertActive } from "@/lib/permissions";
 import { assertStockWontGoNegative } from "@/lib/stock";
 import { logActivity } from "@/lib/activity-log";
-import { PaymentMethod } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 
 type SaleItemInput = {
   productId: string;
   quantity: number;
-  // NOTE: client may send a price for display purposes only.
-  // It is NEVER trusted (Section 2.7) — see re-fetch below.
 };
 
 type RecordSaleInput = {
-  branchId: string;
   customerId?: string;
   items: SaleItemInput[];
   discount: number;
-  paymentMethod: PaymentMethod;
-  amountPaidNow: number; // 0 for full credit
+  paymentMethod: "cash" | "transfer" | "pos_card" | "credit";
+  amountPaidNow: number;
 };
 
 /**
- * Records a sale. Every write (Sale, SaleItem[], StockMovement[], Payment?)
- * happens inside one prisma.$transaction — Section 2.4. If any line would
- * take stock negative, the whole transaction aborts: no partial writes.
- *
- * Section 2.7 — product price is re-fetched from the DB inside the
- * transaction. The client-submitted price is never trusted or used.
+ * Records a sale. Section 2.4 — Sale + SaleItem[] + StockMovement[] +
+ * Payment? all happen inside one transaction (withShopScope gives us
+ * that transaction). Section 2.7 — product price is re-fetched from the
+ * DB here, never trusted from the client's cart state.
  */
+export async function findOrCreateCustomer(name: string, phone: string) {
+  const session = await getServerSession();
+  return withShopScope(session.shopId, session.role, async (db) => {
+    const existing = await db.customer.findFirst({ where: { shopId: session.shopId, phone } });
+    if (existing) return { id: existing.id, name: existing.name };
+    const customer = await db.customer.create({ data: { shopId: session.shopId, name, phone } });
+    return { id: customer.id, name: customer.name };
+  });
+}
+
+
 export async function recordSale(input: RecordSaleInput) {
   const session = await getServerSession();
   assertActive(session);
@@ -39,10 +45,11 @@ export async function recordSale(input: RecordSaleInput) {
     throw new Error("Sale must have at least one item");
   }
 
-  return prisma.$transaction(async (tx) => {
-    // Re-fetch authoritative product data — never trust client price/qty.
+  const result = await withShopScope(session.shopId, session.role, async (db) => {
+    const branch = await db.branch.findFirstOrThrow({ where: { shopId: session.shopId } });
+
     const productIds = input.items.map((i) => i.productId);
-    const products = await tx.product.findMany({
+    const products = await db.product.findMany({
       where: { id: { in: productIds }, shopId: session.shopId, isActive: true },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
@@ -54,8 +61,7 @@ export async function recordSale(input: RecordSaleInput) {
     let subtotal = 0;
     const saleItemsData = input.items.map((item) => {
       const product = productMap.get(item.productId)!;
-      const lineTotal = Number(product.sellingPrice) * item.quantity;
-      subtotal += lineTotal;
+      subtotal += Number(product.sellingPrice) * item.quantity;
       return {
         productId: item.productId,
         quantity: item.quantity,
@@ -68,21 +74,16 @@ export async function recordSale(input: RecordSaleInput) {
     if (total < 0) throw new Error("Discount cannot exceed subtotal");
 
     const paymentStatus =
-      input.amountPaidNow >= total
-        ? "paid"
-        : input.amountPaidNow > 0
-        ? "partial"
-        : "credit";
+      input.amountPaidNow >= total ? "paid" : input.amountPaidNow > 0 ? "partial" : "credit";
 
-    // Stock guard for every line BEFORE any write — Section 2.4.
     for (const item of input.items) {
-      await assertStockWontGoNegative(tx, item.productId, -item.quantity);
+      await assertStockWontGoNegative(db as any, item.productId, -item.quantity);
     }
 
-    const sale = await tx.sale.create({
+    const sale = await db.sale.create({
       data: {
         shopId: session.shopId,
-        branchId: input.branchId,
+        branchId: branch.id,
         customerId: input.customerId,
         soldBy: session.id,
         subtotal,
@@ -92,11 +93,9 @@ export async function recordSale(input: RecordSaleInput) {
         paymentMethod: input.paymentMethod,
         items: { create: saleItemsData },
       },
-      include: { items: true },
     });
 
-    // Stock movement per line, inside the same transaction — Section 6.
-    await tx.stockMovement.createMany({
+    await db.stockMovement.createMany({
       data: input.items.map((item) => ({
         productId: item.productId,
         type: "sale" as const,
@@ -107,7 +106,7 @@ export async function recordSale(input: RecordSaleInput) {
     });
 
     if (input.amountPaidNow > 0) {
-      await tx.payment.create({
+      await db.payment.create({
         data: {
           saleId: sale.id,
           amount: input.amountPaidNow,
@@ -117,13 +116,18 @@ export async function recordSale(input: RecordSaleInput) {
       });
     }
 
-    await logActivity(tx, {
+    await logActivity(db as any, {
       shopId: session.shopId,
       userId: session.id,
       actionType: "sale.created",
       description: `Recorded sale ${sale.id} — total ₦${total.toLocaleString()}`,
     });
 
-    return sale;
+    // Plain values only — this crosses back to the Client Component.
+    return { id: sale.id, total };
   });
+
+  revalidatePath("/stock");
+  revalidatePath("/dashboard");
+  return result;
 }

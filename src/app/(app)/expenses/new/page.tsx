@@ -3,11 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatNaira } from "@/lib/format";
-
+import { addExpense } from "@/server/actions/expenses";
 
 // Common categories from Section 7's user story example (rent, transport,
 // wages, etc.) — shops can also type a custom one.
-const commonCategories = ["Rent", "Transport", "Wages", "Utilities", "Supplies", "Other"];
+const commonCategories = [
+  "Rent",
+  "Transport",
+  "Wages",
+  "Utilities",
+  "Supplies",
+  "Other",
+];
 
 export default function AddExpensePage() {
   const router = useRouter();
@@ -30,13 +37,7 @@ export default function AddExpensePage() {
 
     setLoading(true);
     try {
-      // TODO: replace with the real addExpense() server action once the
-      // DB is connected. That action must call assertOwner(session)
-      // before anything else (Section 2.5) — expenses are one of the
-      // five actions locked to Owner only, and Section 3.2 means this
-      // is always an INSERT, never an update to a prior expense.
-      console.log("Would create expense:", { category: finalCategory, amount: amt, note });
-      await new Promise((r) => setTimeout(r, 400));
+      await addExpense({ category: finalCategory, amount: amt, note });
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save expense");
@@ -51,19 +52,30 @@ export default function AddExpensePage() {
       </nav>
 
       <main className="p-3 max-w-lg mx-auto">
-        <form onSubmit={handleSubmit} className="bg-white rounded p-3 space-y-3">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white rounded p-3 space-y-3"
+        >
           <label className="block">
             <span className="text-sm font-medium text-charcoal">Category</span>
-            <select className="input mt-1" value={category} onChange={(e) => setCategory(e.target.value)}>
+            <select
+              className="input mt-1"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
               {commonCategories.map((c) => (
-                <option key={c} value={c}>{c}</option>
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
             </select>
           </label>
 
           {category === "Other" && (
             <label className="block">
-              <span className="text-sm font-medium text-charcoal">Custom category</span>
+              <span className="text-sm font-medium text-charcoal">
+                Custom category
+              </span>
               <input
                 className="input mt-1"
                 value={customCategory}
@@ -74,7 +86,9 @@ export default function AddExpensePage() {
           )}
 
           <label className="block">
-            <span className="text-sm font-medium text-charcoal">Amount (₦)</span>
+            <span className="text-sm font-medium text-charcoal">
+              Amount (₦)
+            </span>
             <input
               required
               type="number"
@@ -84,12 +98,16 @@ export default function AddExpensePage() {
               onChange={(e) => setAmount(e.target.value)}
             />
             {Number(amount) > 0 && (
-              <p className="text-xs text-charcoal opacity-60 mt-1">{formatNaira(Number(amount))}</p>
+              <p className="text-xs text-charcoal opacity-60 mt-1">
+                {formatNaira(Number(amount))}
+              </p>
             )}
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-charcoal">Note (optional)</span>
+            <span className="text-sm font-medium text-charcoal">
+              Note (optional)
+            </span>
             <textarea
               className="input mt-1"
               rows={3}
@@ -99,7 +117,11 @@ export default function AddExpensePage() {
             />
           </label>
 
-          {error && <p className="text-sm text-red-700 bg-red-50 p-3 rounded">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-700 bg-red-50 p-3 rounded">
+              {error}
+            </p>
+          )}
 
           <button
             type="submit"

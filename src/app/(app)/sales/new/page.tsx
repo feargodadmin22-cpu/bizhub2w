@@ -1,42 +1,40 @@
 "use client";
 
-import { useMemo, useState } from "react";
+
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { formatNaira } from "@/lib/format";
-
-// TEMPORARY MOCK DATA — replace with a TanStack Query call to a real
-// product search endpoint once the DB is connected (Section 1 mandates
-// TanStack Query for all server data fetching).
-const mockProducts = [
-  { id: "1", name: "Samsung Charger Type-C", sellingPrice: 3500, quantity: 3 },
-  { id: "2", name: "Infinix Phone Pouch", sellingPrice: 1500, quantity: 1 },
-  { id: "3", name: "USB Cable 1m", sellingPrice: 1200, quantity: 4 },
-  { id: "4", name: "Bluetooth Earpiece", sellingPrice: 8500, quantity: 22 },
-  { id: "5", name: "Power Bank 10000mAh", sellingPrice: 12000, quantity: 0 },
-  { id: "6", name: "Screen Protector", sellingPrice: 800, quantity: 45 },
-];
+import { searchProducts } from "@/server/actions/products-search";
+import { recordSale, findOrCreateCustomer } from "@/server/actions/sales";
 
 type PaymentMethod = "cash" | "transfer" | "pos_card" | "credit";
+
 export default function RecordSalePage() {
   const router = useRouter();
   const { items, addItem, updateQuantity, removeItem, clear } = useCartStore();
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<
+    { id: string; name: string; sellingPrice: number; quantity: number }[]
+  >([]);
   const [discount, setDiscount] = useState("0");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [amountPaid, setAmountPaid] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [customerName, setCustomerName] = useState("");
+const [customerPhone, setCustomerPhone] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const searchResults = useMemo(
-    () =>
-      search.trim()
-        ? mockProducts.filter((p) =>
-            p.name.toLowerCase().includes(search.toLowerCase()),
-          )
-        : [],
-    [search],
-  );
+  useEffect(() => {
+    if (!search.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const timeout = setTimeout(() => {
+      searchProducts(search).then(setSearchResults);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
 
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
   const discountAmount = Number(discount) || 0;
@@ -54,23 +52,20 @@ export default function RecordSalePage() {
       return setError("Amount paid cannot exceed total");
 
     setLoading(true);
-    try {
-      // TODO: replace with the real recordSale() server action from
-      // src/server/actions/sales.ts once the DB is connected. That
-      // action re-fetches authoritative prices server-side and blocks
-      // the whole transaction if stock would go negative (Section 2.4,
-      // 2.7) — this screen never trusts its own cart prices for the
-      // actual write.
-      console.log("Would record sale:", {
-        items: items.map((i) => ({
-          productId: i.productId,
-          quantity: i.quantity,
-        })),
+     try {
+      let customerId: string | undefined;
+      if (paymentMethod === "credit" && customerPhone.trim()) {
+        const customer = await findOrCreateCustomer(customerName.trim() || "Walk-in", customerPhone.trim());
+        customerId = customer.id;
+      }
+
+      await recordSale({
+        customerId,
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         discount: discountAmount,
         paymentMethod,
         amountPaidNow: paid,
       });
-      await new Promise((r) => setTimeout(r, 400));
       clear();
       router.push("/dashboard");
     } catch (err) {
@@ -79,6 +74,7 @@ export default function RecordSalePage() {
       setLoading(false);
     }
   }
+
   return (
     <div className="min-h-screen bg-cream">
       <nav className="bg-forest text-cream p-3">
@@ -127,6 +123,7 @@ export default function RecordSalePage() {
             )}
           </div>
         </section>
+
         {/* Right: cart */}
         <section className="bg-white rounded p-3 space-y-3">
           <h2 className="font-semibold text-charcoal">Cart</h2>
@@ -199,18 +196,16 @@ export default function RecordSalePage() {
           </label>
 
           {paymentMethod === "credit" && (
-            <label className="block">
-              <span className="text-sm font-medium text-charcoal">
-                Amount paid now (₦, 0 for full credit)
-              </span>
-              <input
-                type="number"
-                min={0}
-                className="input mt-1"
-                value={amountPaid}
-                onChange={(e) => setAmountPaid(e.target.value)}
-              />
-            </label>
+            <>
+              <label className="block">
+                <span className="text-sm font-medium text-charcoal">Customer name</span>
+                <input className="input mt-1" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-charcoal">Customer phone</span>
+                <input required className="input mt-1" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+              </label>
+            </>
           )}
 
           <div className="border-t border-gray-200 pt-3 space-y-1">

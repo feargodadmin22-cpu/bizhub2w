@@ -25,6 +25,7 @@ if (process.env.NODE_ENV !== "production") {
  * Neon's pooled connection — this fixes that by running the whole
  * request's queries inside a single transaction, set up once.
  */
+
 export async function withShopScope<T>(
   shopId: string,
   role: string,
@@ -35,6 +36,6 @@ export async function withShopScope<T>(
       await tx.$executeRaw`SELECT set_config('app.shop_id', ${shopId}, true), set_config('app.role', ${role}, true)`;
       return callback(tx);
     },
-    { timeout: 15000 }
+    { maxWait: 30000, timeout: 30000 }
   );
 }

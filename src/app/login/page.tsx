@@ -88,6 +88,15 @@ export default function LoginPage() {
             Staff invite code
           </a>
         </p>
+        <p className="text-sm text-center mt-2">
+          <a href="/forgot-password" className="text-charcoal opacity-60">
+            Forgot password?
+          </a>
+        </p>
+
+        <p className="absolute bottom-4 left-0 right-0 text-center text-xs text-charcoal opacity-50">
+        Powered by Mmiri28
+      </p> 
       </div>
 
       <style jsx global>{`

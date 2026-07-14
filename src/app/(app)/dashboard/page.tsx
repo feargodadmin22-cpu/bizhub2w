@@ -18,7 +18,7 @@ export default async function DashboardPage() {
       </nav>
 
       <main className="p-3 max-w-4xl mx-auto space-y-3">
-        <section className="grid grid-cols-3 gap-3">
+        <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <StatCard label="Today's Sales" value={formatNaira(data.today.sales)} />
           {"profit" in data.today && (
             <StatCard label="Today's Profit" value={formatNaira(data.today.profit)} />
@@ -26,13 +26,15 @@ export default async function DashboardPage() {
           <StatCard label="Items Sold" value={String(data.today.itemsSold)} />
         </section>
 
-        <section className="grid grid-cols-2 gap-3">
+       <section className={`grid gap-3 ${session.role === "staff" ? "grid-cols-1" : "grid-cols-2"}`}>
           <a href="/sales/new" className="bg-gold text-charcoal font-semibold p-3 rounded text-center">
             Record Sale
           </a>
-          <a href="/products/new" className="bg-gold text-charcoal font-semibold p-3 rounded text-center">
-            Add Product
-          </a>
+          {session.role !== "staff" && (
+            <a href="/products/new" className="bg-gold text-charcoal font-semibold p-3 rounded text-center">
+              Add Product
+            </a>
+          )}
         </section>
 
         <section className="bg-white rounded p-3">
