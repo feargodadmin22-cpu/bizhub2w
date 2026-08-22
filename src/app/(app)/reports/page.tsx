@@ -148,7 +148,7 @@ export default async function ReportsPage({
                 </tr>
               </thead>
               <tbody>
-                {data.expenses.map((e, i) => (
+  {data.expenses.map((e: { date: string; category: string; amount: number }, i: number) => (
                   <tr
                     key={i}
                     className="border-b border-gray-100 last:border-0"
